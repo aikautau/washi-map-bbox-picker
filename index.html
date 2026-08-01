@@ -1,0 +1,721 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f4f0e7">
+<meta name="description" content="和紙ミニチュア地図の制作範囲を、地図上で選んで共有するためのBBox Picker。">
+<title>Washi Map — BBox Picker</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<style>
+  :root {
+    --paper: #f4f0e7;
+    --paper-strong: #fffdf8;
+    --ink: #252a27;
+    --muted: #6f746f;
+    --line: rgba(37, 42, 39, .15);
+    --accent: #286a65;
+    --accent-soft: rgba(40, 106, 101, .12);
+    --shadow: 0 18px 60px rgba(35, 42, 38, .16);
+    --panel-width: 390px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    overflow: hidden;
+    color: var(--ink);
+    background: var(--paper);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI", sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+  }
+
+  button, input, select, textarea { font: inherit; }
+  button, select, input[type="text"] { min-height: 42px; }
+  button {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: var(--ink);
+    background: var(--paper-strong);
+    cursor: pointer;
+    transition: background-color .16s ease, color .16s ease, border-color .16s ease, transform .16s ease;
+  }
+  button:hover { border-color: rgba(40, 106, 101, .45); background: #fff; }
+  button:active { transform: translateY(1px); }
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: 3px solid rgba(40, 106, 101, .2);
+    outline-offset: 1px;
+  }
+  button.primary { border-color: var(--accent); color: #fff; background: var(--accent); }
+  button.primary:hover { background: #205b57; }
+  button.ghost { border-color: transparent; background: transparent; }
+
+  input[type="text"], select, textarea {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 9px 10px;
+    color: var(--ink);
+    background: var(--paper-strong);
+  }
+  textarea {
+    resize: vertical;
+    min-height: 92px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  #map { position: fixed; inset: 0 0 0 var(--panel-width); }
+  .leaflet-control-attribution { font-size: 10px; }
+
+  #panel {
+    position: fixed;
+    z-index: 1100;
+    inset: 0 auto 0 0;
+    width: var(--panel-width);
+    display: flex;
+    flex-direction: column;
+    background: rgba(244, 240, 231, .97);
+    border-right: 1px solid var(--line);
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(14px);
+  }
+
+  .brand {
+    flex: 0 0 auto;
+    padding: 22px 22px 15px;
+    border-bottom: 1px solid var(--line);
+  }
+  .eyebrow {
+    margin: 0 0 2px;
+    color: var(--accent);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .18em;
+  }
+  h1 { margin: 0; font-size: 22px; line-height: 1.15; letter-spacing: -.02em; }
+  .brand p { margin: 7px 0 0; color: var(--muted); font-size: 12px; }
+
+  #sheetToggle { display: none; }
+  #panelScroll {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 4px 22px calc(28px + env(safe-area-inset-bottom));
+  }
+  section { padding: 17px 0; border-bottom: 1px solid var(--line); }
+  section:last-child { border-bottom: 0; }
+  h2 {
+    margin: 0 0 9px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+  label { display: block; margin: 9px 0 4px; color: var(--muted); font-size: 12px; }
+  .hint { margin: 5px 0 0; color: var(--muted); font-size: 11px; }
+  .row { display: flex; gap: 7px; align-items: stretch; }
+  .row > * { flex: 1; }
+  .search-row input { flex: 1 1 auto; min-width: 0; }
+  .search-row button { flex: 0 0 auto; }
+
+  .segmented { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px; border-radius: 10px; background: rgba(37, 42, 39, .07); }
+  .segmented button { min-height: 38px; border: 0; background: transparent; }
+  .segmented button.active { color: #fff; background: var(--accent); }
+  #aspectBtns button { font-size: 12px; line-height: 1.25; }
+  #aspectBtns small { display: block; opacity: .75; font-size: 10px; }
+
+  #results { list-style: none; margin: 7px 0 0; padding: 0; }
+  #results li {
+    padding: 9px 1px;
+    border-bottom: 1px solid var(--line);
+    cursor: pointer;
+    font-size: 12px;
+  }
+  #results li:last-child { border-bottom: 0; }
+  #results li:hover { color: var(--accent); }
+  #results .type { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; }
+
+  #info {
+    padding: 11px 12px;
+    border-left: 3px solid var(--accent);
+    background: rgba(255, 253, 248, .65);
+    white-space: pre-wrap;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    font-size: 11px;
+    line-height: 1.65;
+  }
+  #rangeWarning { display: none; margin: 8px 0 0; color: #96572b; font-size: 11px; }
+  #rangeWarning.show { display: block; }
+
+  .field-grid { display: grid; grid-template-columns: 1.15fr .85fr; gap: 8px; }
+  .field-grid label { margin-top: 0; }
+  .checkbox { display: flex; gap: 7px; align-items: center; min-height: 42px; margin: 0; color: var(--ink); }
+  .checkbox input { accent-color: var(--accent); }
+  .action-row { display: flex; gap: 7px; margin-top: 7px; }
+  .action-row button { flex: 1; }
+  .copy-status { min-height: 17px; margin-top: 5px; color: var(--accent); font-size: 11px; }
+
+  #cursor {
+    position: fixed;
+    z-index: 900;
+    right: 12px;
+    bottom: 12px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    color: var(--muted);
+    background: rgba(255, 253, 248, .9);
+    box-shadow: 0 2px 12px rgba(35, 42, 38, .12);
+    pointer-events: none;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    font-size: 10px;
+  }
+
+  @media (max-width: 720px) {
+    :root { --panel-width: 100%; }
+    #map { inset: 0; }
+    #panel {
+      inset: auto 0 0;
+      width: 100%;
+      height: min(48svh, 430px);
+      border: 0;
+      border-top: 1px solid var(--line);
+      border-radius: 17px 17px 0 0;
+      transition: height .24s ease;
+    }
+    #panel.expanded { height: 88svh; }
+    .brand { position: relative; padding: 20px 18px 12px; }
+    .brand::before {
+      content: "";
+      position: absolute;
+      top: 7px;
+      left: 50%;
+      width: 38px;
+      height: 4px;
+      border-radius: 99px;
+      background: rgba(37, 42, 39, .2);
+      transform: translateX(-50%);
+    }
+    h1 { font-size: 18px; }
+    .brand p { display: none; }
+    #sheetToggle {
+      display: block;
+      position: absolute;
+      top: 19px;
+      right: 12px;
+      min-height: 34px;
+      padding: 5px 9px;
+      color: var(--accent);
+      font-size: 11px;
+    }
+    #panelScroll { padding: 0 18px calc(22px + env(safe-area-inset-bottom)); }
+    section { padding: 14px 0; }
+    button, select, input[type="text"] { min-height: 44px; }
+    #cursor { display: none; }
+    .leaflet-control-attribution { margin-bottom: min(48svh, 430px) !important; }
+    #panel.expanded ~ #cursor { display: none; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
+  }
+</style>
+</head>
+<body>
+<main id="map" aria-label="範囲を選択する地図"></main>
+
+<aside id="panel" aria-label="BBox Picker 操作パネル">
+  <header class="brand">
+    <p class="eyebrow">WASHI MAP TOOL</p>
+    <h1>BBox Picker</h1>
+    <p>制作範囲を選んで、そのままCodexへ共有できます。</p>
+    <button id="sheetToggle" class="ghost" type="button" aria-expanded="false">広げる</button>
+  </header>
+
+  <div id="panelScroll">
+    <section>
+      <h2>1 · 場所</h2>
+      <div class="row search-row">
+        <input type="text" id="q" placeholder="例：長良川 岐阜" autocomplete="off">
+        <button id="searchBtn" type="button">検索</button>
+        <button id="locateBtn" type="button" aria-label="現在地を表示">現在地</button>
+      </div>
+      <ul id="results" aria-live="polite"></ul>
+      <p class="hint">検索結果を選んだあと、地図で収まりを確認してください。</p>
+    </section>
+
+    <section>
+      <h2>2 · 範囲</h2>
+      <div class="segmented">
+        <button id="modeFrame" class="active" type="button">中心＋サイズ</button>
+        <button id="modeBbox" type="button">自由BBox</button>
+      </div>
+
+      <div id="framePanel">
+        <p class="hint">地図をタップして中心を置きます。ピンはドラッグできます。</p>
+        <label for="zoomSel">サイズ</label>
+        <select id="zoomSel">
+          <option value="yori">yori · 寄り（短辺430m）</option>
+          <option value="naka" selected>naka · 中（短辺780m）</option>
+          <option value="hiki">hiki · 引き（短辺2km）</option>
+        </select>
+        <label>画角</label>
+        <div class="segmented" id="aspectBtns">
+          <button data-aspect="desktop" class="active" type="button">横長<small>desktop · 16:9</small></button>
+          <button data-aspect="tate" type="button">縦長<small>tate · 4:5</small></button>
+        </div>
+      </div>
+
+      <div id="bboxPanel" hidden>
+        <p class="hint">2つの丸をドラッグして変形。地図タップで矩形ごと移動します。</p>
+        <button id="fitView" type="button">表示範囲の中央に作る</button>
+        <label for="pasteBox">既存BBoxを読み込む</label>
+        <textarea id="pasteBox" rows="3" placeholder="west: 136.70&#10;south: 35.39&#10;east: 136.74&#10;north: 35.43"></textarea>
+        <div class="action-row"><button id="parseBtn" type="button">読み込む</button></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>3 · 確認</h2>
+      <div id="info">地図をタップして中心を選んでください。</div>
+      <p id="rangeWarning">広めの範囲です。公共サーバーへの負荷を避けるため、本当に必要な範囲か確認してください。</p>
+    </section>
+
+    <section>
+      <h2>4 · 共有</h2>
+      <div class="field-grid">
+        <div>
+          <label for="regionName">場所名</label>
+          <input type="text" id="regionName" value="new_area">
+        </div>
+        <label class="checkbox"><input type="checkbox" id="fullTpl"> フルconfig</label>
+      </div>
+
+      <label for="promptOut">Codexへの指示文</label>
+      <textarea id="promptOut" rows="8" readonly></textarea>
+      <div class="action-row">
+        <button id="copyPromptBtn" class="primary" type="button">指示文をコピー</button>
+        <button id="shareBtn" type="button">共有</button>
+      </div>
+      <div id="promptStatus" class="copy-status" aria-live="polite"></div>
+
+      <label for="yamlOut">config YAML</label>
+      <textarea id="yamlOut" rows="10" readonly></textarea>
+      <div class="action-row"><button id="copyYamlBtn" type="button">YAMLをコピー</button></div>
+      <div id="yamlStatus" class="copy-status" aria-live="polite"></div>
+      <p class="hint">地図 © OpenStreetMap contributors。検索はNominatimを使用し、操作時だけ問い合わせます。</p>
+    </section>
+  </div>
+</aside>
+
+<div id="cursor" aria-hidden="true"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+const ZOOM_PRESETS = { yori: 430.0, naka: 780.0, hiki: 2000.0 };
+const ASPECT_PRESETS = { desktop: [3840, 2160], tate: [1920, 2400] };
+const M_PER_DEG_LAT = 111320.0;
+const NOMINATIM_ENDPOINT = 'https://nominatim.openstreetmap.org/search';
+const r6 = (x) => Math.round(x * 1e6) / 1e6;
+const $ = (id) => document.getElementById(id);
+
+const map = L.map('map', { zoomControl: false }).setView([38.5, 137.5], 5);
+L.control.zoom({ position: 'topright' }).addTo(map);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+}).addTo(map);
+
+let mode = 'frame';
+let aspect = 'desktop';
+let centerMarker = null;
+let frameRect = null;
+let swMarker = null;
+let neMarker = null;
+let bboxRect = null;
+let searchPin = null;
+let searching = false;
+let initializing = true;
+const searchCache = new Map();
+
+function frameBBox(lon, lat, zoom, frameAspect) {
+  const [wpx, hpx] = ASPECT_PRESETS[frameAspect];
+  const shortM = ZOOM_PRESETS[zoom];
+  const wm = wpx >= hpx ? shortM * wpx / hpx : shortM;
+  const hm = wpx >= hpx ? shortM : shortM * hpx / wpx;
+  const dlat = hm / M_PER_DEG_LAT;
+  const dlon = wm / (M_PER_DEG_LAT * Math.cos(lat * Math.PI / 180));
+  return {
+    west: r6(lon - dlon / 2), south: r6(lat - dlat / 2),
+    east: r6(lon + dlon / 2), north: r6(lat + dlat / 2)
+  };
+}
+
+function currentBBox() {
+  if (mode === 'frame') {
+    if (!centerMarker) return null;
+    const c = centerMarker.getLatLng();
+    return frameBBox(c.lng, c.lat, $('zoomSel').value, aspect);
+  }
+  if (!swMarker || !neMarker) return null;
+  const a = swMarker.getLatLng();
+  const b = neMarker.getLatLng();
+  return {
+    west: r6(Math.min(a.lng, b.lng)), south: r6(Math.min(a.lat, b.lat)),
+    east: r6(Math.max(a.lng, b.lng)), north: r6(Math.max(a.lat, b.lat))
+  };
+}
+
+function bboxMeters(bb) {
+  const midLat = (bb.south + bb.north) / 2;
+  return {
+    w: (bb.east - bb.west) * M_PER_DEG_LAT * Math.cos(midLat * Math.PI / 180),
+    h: (bb.north - bb.south) * M_PER_DEG_LAT
+  };
+}
+
+function stateHash(bb) {
+  const p = new URLSearchParams({ mode, name: $('regionName').value.trim() || 'new_area' });
+  if (mode === 'frame' && centerMarker) {
+    const c = centerMarker.getLatLng();
+    p.set('lon', r6(c.lng));
+    p.set('lat', r6(c.lat));
+    p.set('zoom', $('zoomSel').value);
+    p.set('aspect', aspect);
+  } else if (bb) {
+    for (const key of ['west', 'south', 'east', 'north']) p.set(key, bb[key]);
+  }
+  return p.toString();
+}
+
+function updateUrl(bb) {
+  if (initializing || !bb) return;
+  history.replaceState(null, '', `${location.pathname}${location.search}#${stateHash(bb)}`);
+}
+
+function buildOutputs(bb, meters) {
+  const name = $('regionName').value.trim() || 'new_area';
+  let body;
+  let instruction;
+  if (mode === 'frame') {
+    const c = centerMarker.getLatLng();
+    body = `frame:\n  center: [${r6(c.lng)}, ${r6(c.lat)}]\n  zoom: ${$('zoomSel').value}\n  aspect: ${aspect}\n`;
+    instruction = `この範囲で和紙ミニチュア地図を作ってください。\n\n場所名: ${name}\n${body}`;
+  } else {
+    body = `bbox:\n  west: ${bb.west}\n  south: ${bb.south}\n  east: ${bb.east}\n  north: ${bb.north}\n`;
+    instruction = `このBBoxで和紙ミニチュア地図を作ってください。\n\n場所名: ${name}\n${body}`;
+  }
+
+  const shareUrl = location.href;
+  $('promptOut').value = `${instruction}\n範囲確認URL: ${shareUrl}`;
+
+  if ($('fullTpl').checked) {
+    let render = 'render:\n  samples: 256\n  device: gpu\n';
+    if (mode === 'bbox') {
+      const width = Math.max(1, Math.round(2400 * meters.w / meters.h));
+      render = `render:\n  width: ${width}\n  height: 2400\n  samples: 256\n  device: gpu\n`;
+    }
+    $('yamlOut').value = `name: ${name}\n\n${body}\nbuildings:\n  source: plateau\n\nstyle:\n  preset: asase\n\n${render}`;
+  } else {
+    $('yamlOut').value = body;
+  }
+}
+
+function refresh() {
+  const bb = currentBBox();
+  if (!bb) {
+    $('info').textContent = '地図をタップして中心を選んでください。';
+    $('promptOut').value = '';
+    $('yamlOut').value = '';
+    return;
+  }
+  const bounds = [[bb.south, bb.west], [bb.north, bb.east]];
+  if (mode === 'frame') {
+    if (!frameRect) frameRect = L.rectangle(bounds, { color: '#286a65', weight: 2, fillOpacity: .07, interactive: false }).addTo(map);
+    else frameRect.setBounds(bounds);
+  } else if (bboxRect) {
+    bboxRect.setBounds(bounds);
+  }
+
+  const meters = bboxMeters(bb);
+  const resolution = mode === 'frame' ? `${ASPECT_PRESETS[aspect].join(' × ')}px` : '自由比率';
+  $('info').textContent = `west  ${bb.west}\nsouth ${bb.south}\neast  ${bb.east}\nnorth ${bb.north}\n\n約 ${Math.round(meters.w)}m × ${Math.round(meters.h)}m\n${resolution}`;
+  $('rangeWarning').classList.toggle('show', Math.max(meters.w, meters.h) > 5000);
+  updateUrl(bb);
+  buildOutputs(bb, meters);
+}
+
+function setCenter(latlng) {
+  if (!centerMarker) {
+    centerMarker = L.marker(latlng, { draggable: true }).addTo(map);
+    centerMarker.on('drag dragend', refresh);
+  } else {
+    centerMarker.setLatLng(latlng);
+  }
+  refresh();
+}
+
+const cornerIcon = L.divIcon({
+  className: '', iconSize: [20, 20], iconAnchor: [10, 10],
+  html: '<div style="width:20px;height:20px;border-radius:50%;background:#fffdf8;border:4px solid #286a65;box-shadow:0 2px 8px rgba(35,42,38,.22)"></div>'
+});
+
+function setBboxCorners(sw, ne) {
+  if (!swMarker) {
+    swMarker = L.marker(sw, { draggable: true, icon: cornerIcon }).addTo(map);
+    neMarker = L.marker(ne, { draggable: true, icon: cornerIcon }).addTo(map);
+    bboxRect = L.rectangle([sw, ne], { color: '#286a65', weight: 2, fillOpacity: .07, interactive: false }).addTo(map);
+    swMarker.on('drag dragend', refresh);
+    neMarker.on('drag dragend', refresh);
+  } else {
+    swMarker.setLatLng(sw);
+    neMarker.setLatLng(ne);
+  }
+  refresh();
+}
+
+function bboxAtCenter(latlng, dlat, dlon) {
+  setBboxCorners(
+    [latlng.lat - dlat / 2, latlng.lng - dlon / 2],
+    [latlng.lat + dlat / 2, latlng.lng + dlon / 2]
+  );
+}
+
+function resetBboxToView() {
+  const b = map.getBounds();
+  bboxAtCenter(b.getCenter(), (b.getNorth() - b.getSouth()) * .42, (b.getEast() - b.getWest()) * .42);
+}
+
+function moveBboxTo(latlng) {
+  const bb = currentBBox();
+  if (!bb) return resetBboxToView();
+  bboxAtCenter(latlng, bb.north - bb.south, bb.east - bb.west);
+}
+
+function showLayer(layer, visible) {
+  if (!layer) return;
+  if (visible && !map.hasLayer(layer)) map.addLayer(layer);
+  if (!visible && map.hasLayer(layer)) map.removeLayer(layer);
+}
+
+function setMode(nextMode) {
+  mode = nextMode;
+  $('modeFrame').classList.toggle('active', mode === 'frame');
+  $('modeBbox').classList.toggle('active', mode === 'bbox');
+  $('framePanel').hidden = mode !== 'frame';
+  $('bboxPanel').hidden = mode !== 'bbox';
+  showLayer(centerMarker, mode === 'frame');
+  showLayer(frameRect, mode === 'frame');
+  showLayer(swMarker, mode === 'bbox');
+  showLayer(neMarker, mode === 'bbox');
+  showLayer(bboxRect, mode === 'bbox');
+
+  if (mode === 'bbox' && !swMarker && centerMarker) {
+    const c = centerMarker.getLatLng();
+    const bb = frameBBox(c.lng, c.lat, $('zoomSel').value, aspect);
+    setBboxCorners([bb.south, bb.west], [bb.north, bb.east]);
+  }
+  refresh();
+}
+
+async function doSearch() {
+  const q = $('q').value.trim();
+  if (!q || searching) return;
+  searching = true;
+  $('results').innerHTML = '<li>検索中…</li>';
+  try {
+    let items = searchCache.get(q);
+    if (!items) {
+      const params = new URLSearchParams({ format: 'jsonv2', limit: '5', 'accept-language': 'ja', q });
+      const response = await fetch(`${NOMINATIM_ENDPOINT}?${params}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      items = await response.json();
+      searchCache.set(q, items);
+    }
+    $('results').innerHTML = '';
+    if (!items.length) {
+      $('results').innerHTML = '<li>見つかりませんでした</li>';
+      return;
+    }
+    for (const item of items) {
+      const li = document.createElement('li');
+      const title = document.createTextNode(item.display_name);
+      const meta = document.createElement('span');
+      meta.className = 'type';
+      meta.textContent = `${item.type} · ${r6(+item.lon)}, ${r6(+item.lat)}`;
+      li.append(title, meta);
+      li.onclick = () => {
+        const ll = L.latLng(+item.lat, +item.lon);
+        map.setView(ll, 15);
+        if (searchPin) map.removeLayer(searchPin);
+        searchPin = L.circleMarker(ll, { radius: 6, color: '#b76a35', weight: 2, fillOpacity: .82 }).addTo(map);
+        if (mode === 'frame') setCenter(ll);
+        else moveBboxTo(ll);
+        $('results').innerHTML = '';
+      };
+      $('results').appendChild(li);
+    }
+  } catch (error) {
+    $('results').innerHTML = `<li>検索できませんでした（${error.message}）</li>`;
+  } finally {
+    searching = false;
+  }
+}
+
+function locateMe() {
+  if (!navigator.geolocation) {
+    $('results').innerHTML = '<li>このブラウザは現在地取得に対応していません</li>';
+    return;
+  }
+  $('locateBtn').textContent = '取得中…';
+  navigator.geolocation.getCurrentPosition(
+    ({ coords }) => {
+      const ll = L.latLng(coords.latitude, coords.longitude);
+      map.setView(ll, 16);
+      if (mode === 'frame') setCenter(ll);
+      else moveBboxTo(ll);
+      $('locateBtn').textContent = '現在地';
+    },
+    () => {
+      $('results').innerHTML = '<li>現在地を取得できませんでした</li>';
+      $('locateBtn').textContent = '現在地';
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+}
+
+function parseExistingBbox() {
+  const text = $('pasteBox').value;
+  const valueFor = (key) => {
+    const match = text.match(new RegExp(`${key}\\s*[:=]\\s*(-?\\d+(?:\\.\\d+)?)`, 'i'));
+    return match ? +match[1] : null;
+  };
+  let values = ['west', 'south', 'east', 'north'].map(valueFor);
+  if (values.some((value) => value === null)) {
+    const nums = text.match(/-?\d+(?:\.\d+)?/g);
+    if (nums && nums.length >= 4) values = nums.slice(0, 4).map(Number);
+  }
+  const [w, s, e, n] = values;
+  if (values.some((value) => value === null || Number.isNaN(value)) || w >= e || s >= n) {
+    alert('BBoxを読み取れませんでした。west / south / east / northを確認してください。');
+    return;
+  }
+  setMode('bbox');
+  setBboxCorners([s, w], [n, e]);
+  map.fitBounds([[s, w], [n, e]], { padding: [40, 40] });
+}
+
+async function copyText(text, statusId, message) {
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const target = statusId === 'yamlStatus' ? $('yamlOut') : $('promptOut');
+    target.select();
+    document.execCommand('copy');
+  }
+  $(statusId).textContent = message;
+  setTimeout(() => { $(statusId).textContent = ''; }, 1800);
+}
+
+async function shareSelection() {
+  const text = $('promptOut').value;
+  if (!text) return;
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: 'Washi Map BBox', text, url: location.href });
+      return;
+    } catch (error) {
+      if (error.name === 'AbortError') return;
+    }
+  }
+  await copyText(text, 'promptStatus', '共有用の指示文をコピーしました');
+}
+
+function initFromHash() {
+  const raw = location.hash.slice(1);
+  if (!raw) return;
+
+  if (!raw.includes('=')) {
+    const nums = raw.split(',').map(Number);
+    if (nums.length === 4 && nums.every(Number.isFinite) && nums[0] < nums[2] && nums[1] < nums[3]) {
+      const [w, s, e, n] = nums;
+      setMode('bbox');
+      setBboxCorners([s, w], [n, e]);
+      map.fitBounds([[s, w], [n, e]], { padding: [40, 40] });
+    }
+    return;
+  }
+
+  const p = new URLSearchParams(raw);
+  const name = p.get('name');
+  if (name) $('regionName').value = name;
+  if (p.get('mode') === 'frame') {
+    const lon = +p.get('lon');
+    const lat = +p.get('lat');
+    const zoom = p.get('zoom');
+    const frameAspect = p.get('aspect');
+    if (ZOOM_PRESETS[zoom]) $('zoomSel').value = zoom;
+    if (ASPECT_PRESETS[frameAspect]) {
+      aspect = frameAspect;
+      document.querySelectorAll('#aspectBtns button').forEach((button) => button.classList.toggle('active', button.dataset.aspect === aspect));
+    }
+    if (Number.isFinite(lon) && Number.isFinite(lat)) {
+      setMode('frame');
+      setCenter([lat, lon]);
+      map.fitBounds(frameRect.getBounds(), { padding: [55, 55] });
+    }
+  } else if (p.get('mode') === 'bbox') {
+    const [w, s, e, n] = ['west', 'south', 'east', 'north'].map((key) => +p.get(key));
+    if ([w, s, e, n].every(Number.isFinite) && w < e && s < n) {
+      setMode('bbox');
+      setBboxCorners([s, w], [n, e]);
+      map.fitBounds([[s, w], [n, e]], { padding: [40, 40] });
+    }
+  }
+}
+
+$('modeFrame').onclick = () => setMode('frame');
+$('modeBbox').onclick = () => setMode('bbox');
+$('fitView').onclick = resetBboxToView;
+$('parseBtn').onclick = parseExistingBbox;
+$('searchBtn').onclick = doSearch;
+$('locateBtn').onclick = locateMe;
+$('q').addEventListener('keydown', (event) => { if (event.key === 'Enter') doSearch(); });
+
+map.on('click', (event) => {
+  if (mode === 'frame') setCenter(event.latlng);
+  else moveBboxTo(event.latlng);
+});
+map.on('mousemove', (event) => { $('cursor').textContent = `${r6(event.latlng.lng)}, ${r6(event.latlng.lat)}`; });
+
+['zoomSel', 'regionName', 'fullTpl'].forEach((id) => $(id).addEventListener('input', refresh));
+document.querySelectorAll('#aspectBtns button').forEach((button) => {
+  button.onclick = () => {
+    aspect = button.dataset.aspect;
+    document.querySelectorAll('#aspectBtns button').forEach((item) => item.classList.toggle('active', item === button));
+    refresh();
+  };
+});
+
+$('copyPromptBtn').onclick = () => copyText($('promptOut').value, 'promptStatus', '指示文をコピーしました');
+$('copyYamlBtn').onclick = () => copyText($('yamlOut').value, 'yamlStatus', 'YAMLをコピーしました');
+$('shareBtn').onclick = shareSelection;
+$('sheetToggle').onclick = () => {
+  const expanded = $('panel').classList.toggle('expanded');
+  $('sheetToggle').textContent = expanded ? '地図を見る' : '広げる';
+  $('sheetToggle').setAttribute('aria-expanded', expanded);
+  setTimeout(() => map.invalidateSize(), 260);
+};
+
+initFromHash();
+initializing = false;
+refresh();
+</script>
+</body>
+</html>
