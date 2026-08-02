@@ -624,17 +624,18 @@ async function copyText(text, statusId, message) {
 }
 
 async function shareSelection() {
-  const text = $('promptOut').value;
-  if (!text) return;
+  const fullText = $('promptOut').value;
+  if (!fullText) return;
+  const shareText = fullText.replace(/\n範囲確認URL: .*$/, '');
   if (navigator.share) {
     try {
-      await navigator.share({ title: 'Washi Map BBox', text, url: location.href });
+      await navigator.share({ title: 'Washi Map BBox', text: shareText, url: location.href });
       return;
     } catch (error) {
       if (error.name === 'AbortError') return;
     }
   }
-  await copyText(text, 'promptStatus', '共有用の指示文をコピーしました');
+  await copyText(fullText, 'promptStatus', '共有用の指示文をコピーしました');
 }
 
 function initFromHash() {
