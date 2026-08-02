@@ -321,6 +321,10 @@ const ZOOM_PRESETS = { yori: 430.0, naka: 780.0, hiki: 2000.0 };
 const ASPECT_PRESETS = { desktop: [3840, 2160], tate: [1920, 2400] };
 const M_PER_DEG_LAT = 111320.0;
 const NOMINATIM_ENDPOINT = 'https://nominatim.openstreetmap.org/search';
+const SEARCH_MIN_INTERVAL_MS = 1100;
+const SEARCH_CACHE_KEY = 'washi-map-nominatim-cache-v1';
+const SEARCH_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const SEARCH_CACHE_MAX_ENTRIES = 50;
 const r6 = (x) => Math.round(x * 1e6) / 1e6;
 const $ = (id) => document.getElementById(id);
 
@@ -341,7 +345,66 @@ let bboxRect = null;
 let searchPin = null;
 let searching = false;
 let initializing = true;
-const searchCache = new Map();
+let lastSearchStartedAt = 0;
+const searchCache = loadSearchCache();
+
+function normalizeSearchQuery(query) {
+  return query.trim().replace(/\s+/g, ' ').toLocaleLowerCase('ja');
+}
+
+function loadSearchCache() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(SEARCH_CACHE_KEY) || '[]');
+    if (!Array.isArray(stored)) return new Map();
+    const now = Date.now();
+    return new Map(stored.filter(([key, entry]) => (
+      typeof key === 'string' &&
+      entry &&
+      Array.isArray(entry.items) &&
+      Number.isFinite(entry.cachedAt) &&
+      now - entry.cachedAt < SEARCH_CACHE_TTL_MS
+    )));
+  } catch {
+    return new Map();
+  }
+}
+
+function saveSearchCache() {
+  try {
+    const entries = [...searchCache.entries()]
+      .sort((a, b) => b[1].cachedAt - a[1].cachedAt)
+      .slice(0, SEARCH_CACHE_MAX_ENTRIES);
+    localStorage.setItem(SEARCH_CACHE_KEY, JSON.stringify(entries));
+  } catch {
+    // localStorageが無効な環境では、ページ内のメモリキャッシュだけを使う。
+  }
+}
+
+function getCachedSearch(query) {
+  const key = normalizeSearchQuery(query);
+  const entry = searchCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.cachedAt >= SEARCH_CACHE_TTL_MS) {
+    searchCache.delete(key);
+    saveSearchCache();
+    return null;
+  }
+  return entry.items;
+}
+
+function cacheSearch(query, items) {
+  searchCache.set(normalizeSearchQuery(query), { items, cachedAt: Date.now() });
+  saveSearchCache();
+}
+
+async function waitForSearchSlot() {
+  const waitMs = Math.max(0, SEARCH_MIN_INTERVAL_MS - (Date.now() - lastSearchStartedAt));
+  if (waitMs > 0) {
+    $('results').innerHTML = '<li>検索間隔を調整中…</li>';
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+  lastSearchStartedAt = Date.now();
+}
 
 function frameBBox(lon, lat, zoom, frameAspect) {
   const [wpx, hpx] = ASPECT_PRESETS[frameAspect];
@@ -527,15 +590,18 @@ async function doSearch() {
   const q = $('q').value.trim();
   if (!q || searching) return;
   searching = true;
+  $('searchBtn').disabled = true;
   $('results').innerHTML = '<li>検索中…</li>';
   try {
-    let items = searchCache.get(q);
+    let items = getCachedSearch(q);
     if (!items) {
+      await waitForSearchSlot();
+      $('results').innerHTML = '<li>検索中…</li>';
       const params = new URLSearchParams({ format: 'jsonv2', limit: '5', 'accept-language': 'ja', q });
       const response = await fetch(`${NOMINATIM_ENDPOINT}?${params}`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       items = await response.json();
-      searchCache.set(q, items);
+      cacheSearch(q, items);
     }
     $('results').innerHTML = '';
     if (!items.length) {
@@ -564,6 +630,7 @@ async function doSearch() {
     $('results').innerHTML = `<li>検索できませんでした（${error.message}）</li>`;
   } finally {
     searching = false;
+    $('searchBtn').disabled = false;
   }
 }
 

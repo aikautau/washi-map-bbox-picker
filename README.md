@@ -12,7 +12,9 @@
 
 ## 公共サービスへの配慮
 
-地図にはOpenStreetMap標準タイル、検索には公開Nominatimを使用しています。検索は利用者がボタンを押したときだけ行い、同一セッション内の同一検索語はキャッシュします。大量アクセスや自動検索には使用しないでください。
+地図にはOpenStreetMap標準タイル、検索には公開Nominatimを使用しています。検索は利用者がボタンを押したときだけ行い、ブラウザごとに最低1.1秒の間隔を空けます。同じ検索語の結果はブラウザ内へ7日間・最大50件保存し、再問い合わせを避けます。大量アクセスや自動検索には使用しないでください。
+
+検索履歴のキャッシュはブラウザのサイトデータを消去すると削除できます。
 
 - [OpenStreetMap Tile Usage Policy](https://operations.osmfoundation.org/policies/tiles/)
 - [Nominatim Usage Policy](https://operations.osmfoundation.org/policies/nominatim/)
