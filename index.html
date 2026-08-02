@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#f4f0e7">
 <meta name="description" content="和紙ミニチュア地図の制作範囲を、地図上で選んで共有するためのBBox Picker。">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://unpkg.com 'sha256-Y/GidXNKJ1lmtibgLV0LgE3M71tDHMAT5khxLUSOr7s='; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https://unpkg.com https://tile.openstreetmap.org; connect-src 'self' https://nominatim.openstreetmap.org; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; upgrade-insecure-requests">
 <title>Washi Map — BBox Picker</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <style>
@@ -332,6 +334,16 @@ const SEARCH_CACHE_MAX_ENTRIES = 50;
 const r6 = (x) => Math.round(x * 1e6) / 1e6;
 const $ = (id) => document.getElementById(id);
 
+function clearResults() {
+  $('results').replaceChildren();
+}
+
+function showResultMessage(message) {
+  const li = document.createElement('li');
+  li.textContent = message;
+  $('results').replaceChildren(li);
+}
+
 const map = L.map('map', { zoomControl: false }).setView([38.5, 137.5], 5);
 L.control.zoom({ position: 'topright' }).addTo(map);
 map.attributionControl.setPosition('topleft');
@@ -407,7 +419,7 @@ function cacheSearch(query, items) {
 async function waitForSearchSlot() {
   const waitMs = Math.max(0, SEARCH_MIN_INTERVAL_MS - (Date.now() - lastSearchStartedAt));
   if (waitMs > 0) {
-    $('results').innerHTML = '<li>検索間隔を調整中…</li>';
+    showResultMessage('検索間隔を調整中…');
     await new Promise((resolve) => setTimeout(resolve, waitMs));
   }
   lastSearchStartedAt = Date.now();
@@ -598,21 +610,21 @@ async function doSearch() {
   if (!q || searching) return;
   searching = true;
   $('searchBtn').disabled = true;
-  $('results').innerHTML = '<li>検索中…</li>';
+  showResultMessage('検索中…');
   try {
     let items = getCachedSearch(q);
     if (!items) {
       await waitForSearchSlot();
-      $('results').innerHTML = '<li>検索中…</li>';
+      showResultMessage('検索中…');
       const params = new URLSearchParams({ format: 'jsonv2', limit: '5', 'accept-language': 'ja', q });
       const response = await fetch(`${NOMINATIM_ENDPOINT}?${params}`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       items = await response.json();
       cacheSearch(q, items);
     }
-    $('results').innerHTML = '';
+    clearResults();
     if (!items.length) {
-      $('results').innerHTML = '<li>見つかりませんでした</li>';
+      showResultMessage('見つかりませんでした');
       return;
     }
     for (const item of items) {
@@ -629,12 +641,12 @@ async function doSearch() {
         searchPin = L.circleMarker(ll, { radius: 6, color: '#b76a35', weight: 2, fillOpacity: .82 }).addTo(map);
         if (mode === 'frame') setCenter(ll);
         else moveBboxTo(ll);
-        $('results').innerHTML = '';
+        clearResults();
       };
       $('results').appendChild(li);
     }
   } catch (error) {
-    $('results').innerHTML = `<li>検索できませんでした（${error.message}）</li>`;
+    showResultMessage(`検索できませんでした（${error.message}）`);
   } finally {
     searching = false;
     $('searchBtn').disabled = false;
@@ -643,7 +655,7 @@ async function doSearch() {
 
 function locateMe() {
   if (!navigator.geolocation) {
-    $('results').innerHTML = '<li>このブラウザは現在地取得に対応していません</li>';
+    showResultMessage('このブラウザは現在地取得に対応していません');
     return;
   }
   $('locateBtn').textContent = '取得中…';
@@ -656,7 +668,7 @@ function locateMe() {
       $('locateBtn').textContent = '現在地';
     },
     () => {
-      $('results').innerHTML = '<li>現在地を取得できませんでした</li>';
+      showResultMessage('現在地を取得できませんでした');
       $('locateBtn').textContent = '現在地';
     },
     { enableHighAccuracy: true, timeout: 10000 }

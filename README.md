@@ -23,6 +23,8 @@
 
 ビルドは不要です。`index.html` をブラウザで開くか、任意の静的HTTPサーバーで配信してください。
 
+外部リソースはCSPでLeaflet CDN、OpenStreetMapタイル、Nominatimだけに制限しています。インラインスクリプトを変更した場合は、CSP内のSHA-256ハッシュも更新してください。
+
 ## License
 
 MIT
