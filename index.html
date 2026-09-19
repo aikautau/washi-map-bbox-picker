@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#f4f0e7">
 <meta name="description" content="和紙ミニチュア地図の制作範囲を、地図上で選んで共有するためのBBox Picker。">
 <meta name="referrer" content="strict-origin-when-cross-origin">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://unpkg.com 'sha256-Y/GidXNKJ1lmtibgLV0LgE3M71tDHMAT5khxLUSOr7s='; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https://unpkg.com https://tile.openstreetmap.org; connect-src 'self' https://nominatim.openstreetmap.org; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; upgrade-insecure-requests">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://unpkg.com 'sha256-dJDjRF1vH2U1Q14HpkE0LwEe+QMesuNQgsVgNvFGOwI='; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https://unpkg.com https://tile.openstreetmap.org; connect-src 'self' https://nominatim.openstreetmap.org; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; upgrade-insecure-requests">
 <title>Washi Map — BBox Picker</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <style>
@@ -266,15 +266,20 @@
         <p class="hint">地図をタップして中心を置きます。ピンはドラッグできます。</p>
         <label for="zoomSel">サイズ</label>
         <select id="zoomSel">
-          <option value="yori">yori · 寄り（短辺430m）</option>
-          <option value="naka" selected>naka · 中（短辺780m）</option>
-          <option value="hiki">hiki · 引き（短辺2km）</option>
+          <option value="yori">yori · 寄り（短辺430m / 紙2.26 m/mm）</option>
+          <option value="naka" selected>naka · 中（短辺780m / 紙4.105 m/mm）</option>
+          <option value="hiki">hiki · 引き（短辺1450m / 紙7.63 m/mm）</option>
         </select>
-        <label>画角</label>
+        <label>画角・紙</label>
         <div class="segmented" id="aspectBtns">
           <button data-aspect="desktop" class="active" type="button">横長<small>desktop · 16:9</small></button>
           <button data-aspect="tate" type="button">縦長<small>tate · 4:5</small></button>
+          <button data-aspect="a4tate" type="button">A4たて<small>210 × 297mm</small></button>
+          <button data-aspect="a4yoko" type="button">A4よこ<small>297 × 210mm</small></button>
+          <button data-aspect="a3tate" type="button">A3たて<small>297 × 420mm</small></button>
+          <button data-aspect="a3yoko" type="button">A3よこ<small>420 × 297mm</small></button>
         </div>
+        <p class="hint">A4・A3は白黒ワイヤー印刷（等倍・縮尺固定）の紙サイズです。縮尺は「サイズ」が決め、紙を大きくすると写る範囲が広がります。</p>
       </div>
 
       <div id="bboxPanel" hidden>
@@ -310,7 +315,7 @@
       </div>
       <div id="promptStatus" class="copy-status" aria-live="polite"></div>
 
-      <label for="yamlOut">config YAML</label>
+      <label for="yamlOut" id="yamlLabel">config YAML</label>
       <textarea id="yamlOut" rows="10" readonly></textarea>
       <div class="action-row"><button id="copyYamlBtn" type="button">YAMLをコピー</button></div>
       <div id="yamlStatus" class="copy-status" aria-live="polite"></div>
@@ -323,8 +328,21 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script>
-const ZOOM_PRESETS = { yori: 430.0, naka: 780.0, hiki: 2000.0 };
+const ZOOM_PRESETS = { yori: 430.0, naka: 780.0, hiki: 1450.0 };
 const ASPECT_PRESETS = { desktop: [3840, 2160], tate: [1920, 2400] };
+// 紙サイズは白黒ワイヤー印刷(render-wire-print)用。tools/wire_print_config.py と同じ定数・同じ式
+const PAPER_PRESETS = {
+  a4tate: { label: 'A4たて', paper: 'a4', orient: 'tate', mm: [210, 297] },
+  a4yoko: { label: 'A4よこ', paper: 'a4', orient: 'yoko', mm: [297, 210] },
+  a3tate: { label: 'A3たて', paper: 'a3', orient: 'tate', mm: [297, 420] },
+  a3yoko: { label: 'A3よこ', paper: 'a3', orient: 'yoko', mm: [420, 297] }
+};
+// 縮尺(地上m / 紙mm)。A4たての作品幅190mmでZOOM_PRESETSの短辺と一致する
+const PRINT_SCALES = { yori: 2.26, naka: 4.105, hiki: 7.63 };
+const PRINT_PPI = 350;
+const PRINT_MARGIN_MM = 10;   // 上・左・右
+const PRINT_BOTTOM_MM = 20;   // 下(クレジット用)
+const PRINT_TILT_DEG = 34;    // 斜め視は画面の縦が地上を 1/cos だけ長く写す
 const M_PER_DEG_LAT = 111320.0;
 const NOMINATIM_ENDPOINT = 'https://nominatim.openstreetmap.org/search';
 const SEARCH_MIN_INTERVAL_MS = 1100;
@@ -425,11 +443,32 @@ async function waitForSearchSlot() {
   lastSearchStartedAt = Date.now();
 }
 
+function paperArtMm(key) {
+  const [paperW, paperH] = PAPER_PRESETS[key].mm;
+  return [paperW - PRINT_MARGIN_MM * 2, paperH - PRINT_MARGIN_MM - PRINT_BOTTOM_MM];
+}
+
+function paperPx(key) {
+  return paperArtMm(key).map((mm) => Math.round(mm / 25.4 * PRINT_PPI));
+}
+
+function paperGroundM(key, zoom) {
+  const [artW, artH] = paperArtMm(key);
+  const scale = PRINT_SCALES[zoom];
+  return [artW * scale, artH * scale / Math.cos(PRINT_TILT_DEG * Math.PI / 180)];
+}
+
 function frameBBox(lon, lat, zoom, frameAspect) {
-  const [wpx, hpx] = ASPECT_PRESETS[frameAspect];
-  const shortM = ZOOM_PRESETS[zoom];
-  const wm = wpx >= hpx ? shortM * wpx / hpx : shortM;
-  const hm = wpx >= hpx ? shortM : shortM * hpx / wpx;
+  let wm;
+  let hm;
+  if (PAPER_PRESETS[frameAspect]) {
+    [wm, hm] = paperGroundM(frameAspect, zoom);
+  } else {
+    const [wpx, hpx] = ASPECT_PRESETS[frameAspect];
+    const shortM = ZOOM_PRESETS[zoom];
+    wm = wpx >= hpx ? shortM * wpx / hpx : shortM;
+    hm = wpx >= hpx ? shortM : shortM * hpx / wpx;
+  }
   const dlat = hm / M_PER_DEG_LAT;
   const dlon = wm / (M_PER_DEG_LAT * Math.cos(lat * Math.PI / 180));
   return {
@@ -480,11 +519,32 @@ function updateUrl(bb) {
   history.replaceState(null, '', `${location.pathname}${location.search}#${stateHash(bb)}`);
 }
 
+function isPaperFrame() {
+  return mode === 'frame' && Boolean(PAPER_PRESETS[aspect]);
+}
+
+function wirePrintCommand(name, lon, lat, zoom, key) {
+  const paper = PAPER_PRESETS[key];
+  const scaleOption = zoom === 'naka' ? '' : ` --scale ${PRINT_SCALES[zoom]}`;
+  return `python tools/wire_print_config.py \\\n  --name ${name} --center ${lon} ${lat} \\\n`
+    + `  --paper ${paper.paper} --orient ${paper.orient}${scaleOption}`;
+}
+
 function buildOutputs(bb, meters) {
   const name = $('regionName').value.trim() || 'new_area';
   let body;
   let instruction;
-  if (mode === 'frame') {
+  if (isPaperFrame()) {
+    const c = centerMarker.getLatLng();
+    const zoom = $('zoomSel').value;
+    const paper = PAPER_PRESETS[aspect];
+    body = wirePrintCommand(name, r6(c.lng), r6(c.lat), zoom, aspect);
+    instruction = `この中心で白黒ワイヤー印刷を作ってください（render-wire-print）。\n\n`
+      + `場所名: ${name}\n中心: [${r6(c.lng)}, ${r6(c.lat)}]\n`
+      + `紙: ${paper.label}（作品 ${paperArtMm(aspect).join(' × ')}mm）\n`
+      + `縮尺: ${PRINT_SCALES[zoom]} m/mm（${zoom}）\n\n`
+      + `configは手で書かず、このコマンドで生成してください。\n${body}\n`;
+  } else if (mode === 'frame') {
     const c = centerMarker.getLatLng();
     body = `frame:\n  center: [${r6(c.lng)}, ${r6(c.lat)}]\n  zoom: ${$('zoomSel').value}\n  aspect: ${aspect}\n`;
     instruction = `この範囲で和紙ミニチュア地図を作ってください。\n\n場所名: ${name}\n${body}`;
@@ -495,6 +555,15 @@ function buildOutputs(bb, meters) {
 
   const shareUrl = location.href;
   $('promptOut').value = `${instruction}\n範囲確認URL: ${shareUrl}`;
+
+  // 紙サイズのconfigは wire_print_config.py だけが書く。ここではコマンドを出す
+  $('yamlLabel').textContent = isPaperFrame() ? '生成コマンド' : 'config YAML';
+  $('copyYamlBtn').textContent = isPaperFrame() ? 'コマンドをコピー' : 'YAMLをコピー';
+  $('fullTpl').disabled = isPaperFrame();
+  if (isPaperFrame()) {
+    $('yamlOut').value = `${body}\n`;
+    return;
+  }
 
   if ($('fullTpl').checked) {
     let render = 'render:\n  samples: 256\n  device: gpu\n';
@@ -525,7 +594,14 @@ function refresh() {
   }
 
   const meters = bboxMeters(bb);
-  const resolution = mode === 'frame' ? `${ASPECT_PRESETS[aspect].join(' × ')}px` : '自由比率';
+  let resolution = '自由比率';
+  if (mode === 'frame' && PAPER_PRESETS[aspect]) {
+    const paper = PAPER_PRESETS[aspect];
+    resolution = `${paper.label} ${paper.mm.join(' × ')}mm / 作品 ${paperArtMm(aspect).join(' × ')}mm`
+      + `\n${paperPx(aspect).join(' × ')}px · ${PRINT_PPI}ppi · 縮尺 ${PRINT_SCALES[$('zoomSel').value]} m/mm`;
+  } else if (mode === 'frame') {
+    resolution = `${ASPECT_PRESETS[aspect].join(' × ')}px`;
+  }
   $('info').textContent = `west  ${bb.west}\nsouth ${bb.south}\neast  ${bb.east}\nnorth ${bb.north}\n\n約 ${Math.round(meters.w)}m × ${Math.round(meters.h)}m\n${resolution}`;
   $('rangeWarning').classList.toggle('show', Math.max(meters.w, meters.h) > 5000);
   updateUrl(bb);
@@ -748,7 +824,7 @@ function initFromHash() {
     const zoom = p.get('zoom');
     const frameAspect = p.get('aspect');
     if (ZOOM_PRESETS[zoom]) $('zoomSel').value = zoom;
-    if (ASPECT_PRESETS[frameAspect]) {
+    if (ASPECT_PRESETS[frameAspect] || PAPER_PRESETS[frameAspect]) {
       aspect = frameAspect;
       document.querySelectorAll('#aspectBtns button').forEach((button) => button.classList.toggle('active', button.dataset.aspect === aspect));
     }
@@ -791,7 +867,7 @@ document.querySelectorAll('#aspectBtns button').forEach((button) => {
 });
 
 $('copyPromptBtn').onclick = () => copyText($('promptOut').value, 'promptStatus', '指示文をコピーしました');
-$('copyYamlBtn').onclick = () => copyText($('yamlOut').value, 'yamlStatus', 'YAMLをコピーしました');
+$('copyYamlBtn').onclick = () => copyText($('yamlOut').value, 'yamlStatus', isPaperFrame() ? 'コマンドをコピーしました' : 'YAMLをコピーしました');
 $('shareBtn').onclick = shareSelection;
 $('sheetToggle').onclick = () => {
   const expanded = $('panel').classList.toggle('expanded');

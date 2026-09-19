@@ -6,6 +6,7 @@
 
 - 場所名検索と現在地表示
 - `frame`（中心・サイズ・画角）または自由BBoxでの範囲指定
+- A4・A3（たて/よこ）の白黒ワイヤー印刷用サイズと、`wire_print_config.py` のコマンド生成
 - 範囲を復元できる共有URLの生成
 - Codexへの指示文と `osm_to_3d` 用config YAMLのコピー
 - PC・スマートフォン対応
@@ -24,6 +25,8 @@
 ビルドは不要です。`index.html` をブラウザで開くか、任意の静的HTTPサーバーで配信してください。
 
 外部リソースはCSPでLeaflet CDN、OpenStreetMapタイル、Nominatimだけに制限しています。インラインスクリプトを変更した場合は、CSP内のSHA-256ハッシュも更新してください。
+
+紙サイズ（A4・A3）のbbox計算は `osm_to_3d` の `tools/wire_print_config.py` と同じ定数・同じ式です。片方を変えたらもう片方も合わせてください。configそのものは生成器だけが書きます。
 
 ## License
 
