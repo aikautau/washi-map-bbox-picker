@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#f4f0e7">
 <meta name="description" content="和紙ミニチュア地図の制作範囲を、地図上で選んで共有するためのBBox Picker。">
 <meta name="referrer" content="strict-origin-when-cross-origin">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://unpkg.com 'sha256-dJDjRF1vH2U1Q14HpkE0LwEe+QMesuNQgsVgNvFGOwI='; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https://unpkg.com https://tile.openstreetmap.org; connect-src 'self' https://nominatim.openstreetmap.org; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; upgrade-insecure-requests">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://unpkg.com 'sha256-U09ytf8DXtKWgJrfDYVBC9vR0CM/HArd7NPt71WUIKM='; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https://unpkg.com https://tile.openstreetmap.org; connect-src 'self' https://nominatim.openstreetmap.org; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; upgrade-insecure-requests">
 <title>Washi Map — BBox Picker</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <style>
@@ -239,7 +239,7 @@
   <header class="brand">
     <p class="eyebrow">WASHI MAP TOOL</p>
     <h1>BBox Picker</h1>
-    <p>制作範囲を選んで、そのままCodexへ共有できます。</p>
+    <p>制作範囲を選んで、実行用のYAMLを保存できます。</p>
     <button id="sheetToggle" class="ghost" type="button" aria-expanded="false">広げる</button>
   </header>
 
@@ -272,8 +272,9 @@
         </select>
         <label>画角・紙</label>
         <div class="segmented" id="aspectBtns">
-          <button data-aspect="desktop" class="active" type="button">横長<small>desktop · 16:9</small></button>
-          <button data-aspect="tate" type="button">縦長<small>tate · 4:5</small></button>
+          <button data-aspect="desktop" class="active" type="button">デスクトップ<small>3840 × 2160 · 16:9</small></button>
+          <button data-aspect="phone" type="button">スマホ<small>1440 × 3120 · 19.5:9</small></button>
+          <button data-aspect="tate" type="button">たて<small>1920 × 2400 · 4:5</small></button>
           <button data-aspect="a4tate" type="button">A4たて<small>210 × 297mm</small></button>
           <button data-aspect="a4yoko" type="button">A4よこ<small>297 × 210mm</small></button>
           <button data-aspect="a3tate" type="button">A3たて<small>297 × 420mm</small></button>
@@ -298,13 +299,23 @@
     </section>
 
     <section>
-      <h2>4 · 共有</h2>
+      <h2>4 · YAMLと共有</h2>
       <div class="field-grid">
         <div>
-          <label for="regionName">場所名</label>
+          <label for="regionName">地域名（保存名）</label>
           <input type="text" id="regionName" value="new_area">
         </div>
-        <label class="checkbox"><input type="checkbox" id="fullTpl"> フルconfig</label>
+        <label class="checkbox"><input type="checkbox" id="fullTpl" checked> フルconfig</label>
+      </div>
+
+      <div id="stylePanel">
+        <label for="presetSel">表現</label>
+        <select id="presetSel">
+          <option value="asase">浅瀬</option>
+          <option value="yukigesho">雪化粧</option>
+          <option value="yunagi">夕凪</option>
+          <option value="sakura">桜</option>
+        </select>
       </div>
 
       <label for="promptOut">Codexへの指示文</label>
@@ -317,8 +328,12 @@
 
       <label for="yamlOut" id="yamlLabel">config YAML</label>
       <textarea id="yamlOut" rows="10" readonly></textarea>
-      <div class="action-row"><button id="copyYamlBtn" type="button">YAMLをコピー</button></div>
+      <div class="action-row">
+        <button id="copyYamlBtn" type="button">YAMLをコピー</button>
+        <button id="downloadYamlBtn" type="button">YAMLを保存</button>
+      </div>
       <div id="yamlStatus" class="copy-status" aria-live="polite"></div>
+      <p class="hint" id="yamlHint">フルconfigをconfigs/に保存すると、build_map.pyで制作できます。</p>
       <p class="hint">地図 © OpenStreetMap contributors。検索はNominatimを使用し、操作時だけ問い合わせます。</p>
     </section>
   </div>
@@ -329,7 +344,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script>
 const ZOOM_PRESETS = { yori: 430.0, naka: 780.0, hiki: 1450.0 };
-const ASPECT_PRESETS = { desktop: [3840, 2160], tate: [1920, 2400] };
+const ASPECT_PRESETS = { desktop: [3840, 2160], phone: [1440, 3120], tate: [1920, 2400] };
 // 紙サイズは白黒ワイヤー印刷(render-wire-print)用。tools/wire_print_config.py と同じ定数・同じ式
 const PAPER_PRESETS = {
   a4tate: { label: 'A4たて', paper: 'a4', orient: 'tate', mm: [210, 297] },
@@ -501,7 +516,8 @@ function bboxMeters(bb) {
 }
 
 function stateHash(bb) {
-  const p = new URLSearchParams({ mode, name: $('regionName').value.trim() || 'new_area' });
+  const p = new URLSearchParams({ mode, name: $('regionName').value.trim() || 'new_area',
+    preset: $('presetSel').value, full: $('fullTpl').checked ? '1' : '0' });
   if (mode === 'frame' && centerMarker) {
     const c = centerMarker.getLatLng();
     p.set('lon', r6(c.lng));
@@ -553,6 +569,7 @@ function buildOutputs(bb, meters) {
     instruction = `このBBoxで和紙ミニチュア地図を作ってください。\n\n場所名: ${name}\n${body}`;
   }
 
+  if (!isPaperFrame()) instruction += `\n表現: ${$('presetSel').selectedOptions[0].textContent}（${$('presetSel').value}）\n`;
   const shareUrl = location.href;
   $('promptOut').value = `${instruction}\n範囲確認URL: ${shareUrl}`;
 
@@ -560,6 +577,10 @@ function buildOutputs(bb, meters) {
   $('yamlLabel').textContent = isPaperFrame() ? '生成コマンド' : 'config YAML';
   $('copyYamlBtn').textContent = isPaperFrame() ? 'コマンドをコピー' : 'YAMLをコピー';
   $('fullTpl').disabled = isPaperFrame();
+  $('stylePanel').hidden = isPaperFrame();
+  $('downloadYamlBtn').hidden = isPaperFrame();
+  $('downloadYamlBtn').disabled = !$('fullTpl').checked;
+  $('yamlHint').hidden = isPaperFrame();
   if (isPaperFrame()) {
     $('yamlOut').value = `${body}\n`;
     return;
@@ -570,8 +591,12 @@ function buildOutputs(bb, meters) {
     if (mode === 'bbox') {
       const width = Math.max(1, Math.round(2400 * meters.w / meters.h));
       render = `render:\n  width: ${width}\n  height: 2400\n  samples: 256\n  device: gpu\n`;
+    } else {
+      const [width, height] = ASPECT_PRESETS[aspect];
+      render = `render:\n  width: ${width}\n  height: ${height}\n  samples: 256\n  device: gpu\n`;
     }
-    $('yamlOut').value = `name: ${name}\n\n${body}\nbuildings:\n  source: plateau\n\nstyle:\n  preset: asase\n\n${render}`;
+    const bboxBody = `bbox:\n  west: ${bb.west}\n  south: ${bb.south}\n  east: ${bb.east}\n  north: ${bb.north}\n`;
+    $('yamlOut').value = `name: ${JSON.stringify(name)}\n\n${bboxBody}\nbuildings:\n  source: plateau\n\nstyle:\n  preset: ${$('presetSel').value}\n\n${render}`;
   } else {
     $('yamlOut').value = body;
   }
@@ -594,7 +619,7 @@ function refresh() {
   }
 
   const meters = bboxMeters(bb);
-  let resolution = '自由比率';
+  let resolution = `${Math.max(1, Math.round(2400 * meters.w / meters.h))} × 2400px（自由BBoxの比率）`;
   if (mode === 'frame' && PAPER_PRESETS[aspect]) {
     const paper = PAPER_PRESETS[aspect];
     resolution = `${paper.label} ${paper.mm.join(' × ')}mm / 作品 ${paperArtMm(aspect).join(' × ')}mm`
@@ -800,6 +825,23 @@ async function shareSelection() {
   await copyText(fullText, 'promptStatus', '共有用の指示文をコピーしました');
 }
 
+function downloadYaml() {
+  const text = $('yamlOut').value;
+  if (!text || !$('fullTpl').checked || isPaperFrame()) return;
+  const name = $('regionName').value.trim() || 'new_area';
+  // nameは出力フォルダになるため、ダウンロード前にパスとして使えるか確認する。
+  if (/[\\/\x00-\x1f]/.test(name) || name === '.' || name === '..') {
+    $('yamlStatus').textContent = '地域名には / や \\ を含めず、フォルダ名を指定してください。';
+    return;
+  }
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/yaml;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${name}.yaml`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function initFromHash() {
   const raw = location.hash.slice(1);
   if (!raw) return;
@@ -818,6 +860,9 @@ function initFromHash() {
   const p = new URLSearchParams(raw);
   const name = p.get('name');
   if (name) $('regionName').value = name;
+  const preset = p.get('preset');
+  if ([...$('presetSel').options].some((option) => option.value === preset)) $('presetSel').value = preset;
+  if (p.has('full')) $('fullTpl').checked = p.get('full') !== '0';
   if (p.get('mode') === 'frame') {
     const lon = +p.get('lon');
     const lat = +p.get('lat');
@@ -857,7 +902,7 @@ map.on('click', (event) => {
 });
 map.on('mousemove', (event) => { $('cursor').textContent = `${r6(event.latlng.lng)}, ${r6(event.latlng.lat)}`; });
 
-['zoomSel', 'regionName', 'fullTpl'].forEach((id) => $(id).addEventListener('input', refresh));
+['zoomSel', 'regionName', 'fullTpl', 'presetSel'].forEach((id) => $(id).addEventListener('input', refresh));
 document.querySelectorAll('#aspectBtns button').forEach((button) => {
   button.onclick = () => {
     aspect = button.dataset.aspect;
@@ -868,6 +913,7 @@ document.querySelectorAll('#aspectBtns button').forEach((button) => {
 
 $('copyPromptBtn').onclick = () => copyText($('promptOut').value, 'promptStatus', '指示文をコピーしました');
 $('copyYamlBtn').onclick = () => copyText($('yamlOut').value, 'yamlStatus', isPaperFrame() ? 'コマンドをコピーしました' : 'YAMLをコピーしました');
+$('downloadYamlBtn').onclick = downloadYaml;
 $('shareBtn').onclick = shareSelection;
 $('sheetToggle').onclick = () => {
   const expanded = $('panel').classList.toggle('expanded');
